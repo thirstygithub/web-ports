@@ -120,6 +120,29 @@ const SPLIT_FILES = {
 (function () {
 	const originalFetch = window.fetch.bind(window);
 
+	// jsDelivr answers a cold request for a large file with a transient 403 ("package
+	// size exceeded the configured limit of 50 MB") or an occasional 503, and the same
+	// url works on the next attempt, so every part gets a few tries.
+	const FETCH_ATTEMPTS = 4;
+	async function fetchWithRetry(url, init) {
+		for (let attempt = 1; ; attempt += 1) {
+			try {
+				const response = await originalFetch(url, init);
+				if (response.ok) {
+					return response;
+				}
+				if (attempt >= FETCH_ATTEMPTS) {
+					throw new Error(`Failed loading file '${url}' (HTTP ${response.status})`);
+				}
+			} catch (err) {
+				if (attempt >= FETCH_ATTEMPTS) {
+					throw err;
+				}
+			}
+			await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+		}
+	}
+
 	function splitFileName(input) {
 		const url = new URL(input instanceof Request ? input.url : input, document.baseURI);
 		return Object.keys(SPLIT_FILES).find((name) => url.pathname.endsWith(`/${name}`));
@@ -137,10 +160,8 @@ const SPLIT_FILES = {
 				try {
 					for (let index = 1; index <= config.parts; index += 1) {
 						const partNum = String(index).padStart(2, '0');
-						const response = await originalFetch(`${CDN_BASE}${name}.part${partNum}`, init);
-						if (!response.ok) {
-							throw new Error(`Failed loading file '${name}.part${partNum}'`);
-						}
+						const partUrl = `${CDN_BASE}${name}.part${partNum}`;
+						const response = await fetchWithRetry(partUrl, init);
 						const reader = response.body.getReader();
 						while (true) {
 							const result = await reader.read();

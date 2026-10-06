@@ -224,13 +224,29 @@
   const writeSave = (blob) => idb("readwrite", (s) => s.put(blob, SLOT));
   const deleteSave = () => idb("readwrite", (s) => s.delete(SLOT));
 
+  // jsDelivr answers a cold request for a large file with a transient 403 ("package
+  // size exceeded the configured limit of 50 MB") or an occasional 503, and the same
+  // url works on the next attempt, so every part gets a few tries.
+  const FETCH_ATTEMPTS = 4;
+  async function fetchPart(url) {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const response = await fetch(url);
+        if (response.ok) return response;
+        if (attempt >= FETCH_ATTEMPTS) throw new Error(`Couldn't download game data (${response.status})`);
+      } catch (error) {
+        if (attempt >= FETCH_ATTEMPTS) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+    }
+  }
+
   async function fetchState() {
     const chunks = [];
     let loaded = 0;
     for (let i = 1; i <= STATE_PARTS; i++) {
       const name = `${STATE_CHUNK_DIR}/${STATE_URL}.part${String(i).padStart(3, "0")}`;
-      const res = await fetch(name);
-      if (!res.ok) throw new Error(`Couldn't download game data (${res.status})`);
+      const res = await fetchPart(name);
       if (!res.body) {
         const whole = new Uint8Array(await res.arrayBuffer());
         chunks.push(whole);

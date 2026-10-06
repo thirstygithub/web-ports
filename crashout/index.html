@@ -91,6 +91,25 @@
       return spec.path + ".part" + n;
     }
 
+    // jsDelivr answers a cold request for a large file with a transient 403 ("package
+    // size exceeded the configured limit of 50 MB") or an occasional 503, and the same
+    // url works on the next attempt, so every part gets a few tries.
+    var FETCH_ATTEMPTS = 4;
+    function fetchPart(url) {
+      var attempt = 0;
+      function tryOnce() {
+        attempt += 1;
+        return fetch(url).then(function (response) {
+          if (response.ok) return response;
+          throw new Error("Could not load " + url + " (HTTP " + response.status + ")");
+        }).catch(function (error) {
+          if (attempt >= FETCH_ATTEMPTS) throw error;
+          return new Promise(function (resolve) { setTimeout(resolve, 300 * attempt); }).then(tryOnce);
+        });
+      }
+      return tryOnce();
+    }
+
     function loadSplit(spec) {
       var blobs = [];
       var index = 0;
@@ -99,8 +118,7 @@
           return URL.createObjectURL(new Blob(blobs, { type: spec.type }));
         }
         var name = partUrl(spec, ++index);
-        return fetch(name).then(function (response) {
-          if (!response.ok) throw new Error("Could not load " + name + " (HTTP " + response.status + ")");
+        return fetchPart(name).then(function (response) {
           return response.blob();
         }).then(function (blob) {
           blobs.push(blob);

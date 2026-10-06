@@ -32,12 +32,28 @@ const SPLIT = {
   'app.data': { path: 'chunks/app.data', count: 41, type: 'application/octet-stream', label: 'game data' },
 };
 
+// jsDelivr answers a cold request for a large file with a transient 403 ("package size
+// exceeded the configured limit of 50 MB") or an occasional 503, and the same url
+// works on the next attempt, so every part gets a few tries.
+const FETCH_ATTEMPTS = 4;
+async function fetchPart(url) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return response;
+      if (attempt >= FETCH_ATTEMPTS) throw new Error(`Could not load ${url} (HTTP ${response.status})`);
+    } catch (error) {
+      if (attempt >= FETCH_ATTEMPTS) throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 300 * attempt));
+  }
+}
+
 async function loadSplit(spec) {
   const blobs = [];
   for (let i = 1; i <= spec.count; i += 1) {
     const name = `${spec.path}.part${String(i).padStart(3, '0')}`;
-    const response = await fetch(name);
-    if (!response.ok) throw new Error(`Could not load ${name} (HTTP ${response.status})`);
+    const response = await fetchPart(name);
     blobs.push(await response.blob());
     show(`Downloading ${spec.label}... ${Math.round((i / spec.count) * 100)}%`);
     progress.max = spec.count;
