@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <base href="https://cdn.jsdelivr.net/gh/thirstygithub/web-ports@main/dbmb/">
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Don't Bite Me Bro! - Web</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <script src="TemplateData/UnityProgress.js"></script>
+    <script src="Build/UnityLoader.js"></script>
+    <script>
+      // The build's payload is one 36.8 MB file, above the 20 MB jsDelivr per-file
+      // cap, so it ships as numbered parts and is stitched into a blob that the
+      // loader is pointed at instead.
+      var MANIFEST = "Build/Build 9.json";
+      var SPLIT = { path: "chunks/build9.data.unityweb", count: 3 };
+
+      function loadSplit(spec) {
+        var blobs = [];
+        var index = 0;
+        return new Promise(function (resolve, reject) {
+          function step() {
+            if (index >= spec.count) {
+              resolve(new Blob(blobs, { type: "application/octet-stream" }));
+              return;
+            }
+            var n = String(++index);
+            while (n.length < 3) n = "0" + n;
+            var name = spec.path + ".part" + n;
+            fetch(name).then(function (response) {
+              if (!response.ok) throw new Error("Could not load " + name + " (HTTP " + response.status + ")");
+              return response.blob();
+            }).then(function (blob) {
+              blobs.push(blob);
+              step();
+            }, reject);
+          }
+          step();
+        });
+      }
+
+      function fail(error) {
+        console.error(error);
+        var box = document.createElement("div");
+        box.style.cssText = "position:fixed;inset:0;display:grid;place-items:center;padding:24px;" +
+          "background:#000;color:#fff;font:14px/1.6 system-ui,sans-serif;text-align:center";
+        box.textContent = error.message || String(error);
+        document.body.appendChild(box);
+      }
+
+      loadSplit(SPLIT).then(function (blob) {
+        var manifestUrl = new URL(MANIFEST, document.baseURI).href;
+        var manifestDir = manifestUrl.slice(0, manifestUrl.lastIndexOf("/") + 1);
+
+        UnityLoader.instantiate("gameContainer", MANIFEST, {
+          onProgress: UnityProgress,
+          Module: {
+            // The manifest only fills in values the Module does not already have, so
+            // this data url wins, and the loader's own relative-url rewriting has to
+            // let a blob url through untouched.
+            dataUrl: URL.createObjectURL(blob),
+            resolveBuildUrl: function (url) {
+              return /^(https?|ftp|file|blob|data):/.test(url) ? url : manifestDir + url;
+            }
+          }
+        });
+      }).catch(fail);
+    </script>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+
+      .webgl-content, #gameContainer {
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      #gameContainer canvas {
+        width: 100% !important;
+        height: 100% !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="webgl-content">
+      <div id="gameContainer"></div>
+    </div>
+  </body>
+</html>
